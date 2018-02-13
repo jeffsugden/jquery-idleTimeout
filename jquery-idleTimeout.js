@@ -7,10 +7,12 @@
  * Modified by: Jill Elaine
  * Email: jillelaine01@gmail.com
  *
+ * Modified by: Jeff Sugden
+ * 
  * Configurable idle (no activity) timer and logout redirect for jQuery.
  * Works across multiple windows and tabs from the same domain.
  *
- * Dependencies: JQuery v1.7+, JQuery UI, store.js from https://github.com/marcuswestin/store.js - v1.3.4+
+ * Dependencies: JQuery v1.7+, store.js from https://github.com/marcuswestin/store.js - v1.3.4+
  *
  * version 1.0.10
  **/
@@ -29,7 +31,7 @@
       redirectUrl: '/logout',      // redirect to this url on logout. Set to "redirectUrl: false" to disable redirect
 
       // idle settings
-      idleTimeLimit: 1200,           // 'No activity' time limit in seconds. 1200 = 20 Minutes
+      idleTimeLimit: 1200,         // 'No activity' time limit in seconds. 1200 = 20 Minutes
       idleCheckHeartbeat: 2,       // Frequency to check for idle timeouts in seconds
 
       // optional custom callback to perform before logout
@@ -37,6 +39,10 @@
       // customCallback:    function () {    // define optional custom js function
           // perform custom action before logout
       // },
+      onWarning: false,
+      onWarningCountdown: false,
+      onWarningAborted: false,
+      onIdle: false,
 
       // configure which activity events to detect
       // http://www.quirksmode.org/dom/events/
@@ -44,13 +50,8 @@
       activityEvents: 'click keypress scroll wheel mousewheel mousemove', // separate each event with a space
 
       // warning dialog box configuration
-      enableDialog: true,           // set to false for logout without warning dialog
-      dialogDisplayLimit: 180,       // Time to display the warning dialog before logout (and optional callback) in seconds. 180 = 3 Minutes
-      dialogTitle: 'Session Expiration Warning', // also displays on browser title bar
-      dialogText: 'Because you have been inactive, your session is about to expire.',
-      dialogTimeRemaining: 'Time remaining',
-      dialogStayLoggedInButton: 'Stay Logged In',
-      dialogLogOutNowButton: 'Log Out Now',
+      enableDialog: true,           // set to false for logout without warning grace-period timeout
+      dialogDisplayLimit: 180,      // Time to display the warning dialog before logout (and optional callback) in seconds. 180 = 3 Minutes
 
       // error message if https://github.com/marcuswestin/store.js not enabled
       errorAlertMessage: 'Please disable "Private Mode", or upgrade to a modern browser. Or perhaps a dependent file missing. Please see: https://github.com/marcuswestin/store.js',
@@ -68,7 +69,7 @@
       activityDetector,
       startKeepSessionAlive, stopKeepSessionAlive, keepSession, keepAlivePing, // session keep alive
       idleTimer, remainingTimer, checkIdleTimeout, checkIdleTimeoutLoop, startIdleTimer, stopIdleTimer, // idle timer
-      openWarningDialog, dialogTimer, checkDialogTimeout, startDialogTimer, stopDialogTimer, isDialogOpen, destroyWarningDialog, countdownDisplay, // warning dialog
+      beginWarningPeriod, dialogTimer, checkDialogTimeout, startDialogTimer, stopDialogTimer, isWarningPeriod, abortWarningPeriodoy, countdownDisplay, // warning dialog
       logoutUser;
 
     //##############################
@@ -104,7 +105,7 @@
 
       $('body').on(currentConfig.activityEvents, function () {
 
-        if (!currentConfig.enableDialog || (currentConfig.enableDialog && isDialogOpen() !== true)) {
+          if (!currentConfig.enableDialog || (currentConfig.enableDialog && isWarningPeriod !== true)) {
           startIdleTimer();
         }
       });
@@ -117,19 +118,17 @@
 
       if ($.now() > timeIdleTimeout) {
 
-        if (!currentConfig.enableDialog) { // warning dialog is disabled
-          logoutUser(); // immediately log out user when user is idle for idleTimeLimit
-        } else if (currentConfig.enableDialog && isDialogOpen() !== true) {
-          openWarningDialog();
-          startDialogTimer(); // start timing the warning dialog
+        if (!currentConfig.enableDialog) { // warning peirod is disabled
+            logoutUser(); // immediately log out user when user is idle for idleTimeLimit
+        } else if (currentConfig.enableDialog && isWarningPeriod !== true) {
+            beginWarningPeriod();
         }
       } else if (store.get('idleTimerLoggedOut') === true) { //a 'manual' user logout?
-        logoutUser();
+            logoutUser();
       } else {
-
-        if (currentConfig.enableDialog && isDialogOpen() === true) {
-          destroyWarningDialog();
-          stopDialogTimer();
+          if (currentConfig.enableDialog && isWarningPeriod === true) {
+              abortWarningPeriod();
+          
         }
       }
     };
@@ -149,42 +148,19 @@
       clearTimeout(idleTimer);
     };
 
-    //----------- WARNING DIALOG FUNCTIONS --------------//
-    openWarningDialog = function () {
-
-      var dialogContent = "<div id='idletimer_warning_dialog'><p>" + currentConfig.dialogText + "</p><p style='display:inline'>" + currentConfig.dialogTimeRemaining + ": <div style='display:inline' id='countdownDisplay'></div></p></div>";
-
-      $(dialogContent).dialog({
-        buttons: [{
-          text: currentConfig.dialogStayLoggedInButton,
-          click: function () {
-            destroyWarningDialog();
-            stopDialogTimer();
-            startIdleTimer();
-          }
-        },
-          {
-            text: currentConfig.dialogLogOutNowButton,
-            click: function () {
-              logoutUser();
-            }
-          }
-          ],
-        closeOnEscape: false,
-        modal: true,
-        title: currentConfig.dialogTitle,
-        open: function () {
-          $(this).closest('.ui-dialog').find('.ui-dialog-titlebar-close').hide();
+    //----------- WARNING DIALOG (Countdown) FUNCTIONS --------------//
+    beginWarningPeriod = function () {
+        
+        if (currentConfig.onWarning) {
+            currentConfig.onWarning();
         }
-      });
 
-      countdownDisplay();
-
-      document.title = currentConfig.dialogTitle;
-
-      if (currentConfig.sessionKeepAliveTimer) {
-        stopKeepSessionAlive();
-      }
+        if (currentConfig.sessionKeepAliveTimer) {
+            stopKeepSessionAlive();
+        }
+        isWarningPeriod = true;
+        startDialogTimer(); // Start Warning Timeout
+        countdownDisplay(); // Start Warning Countdown Display
     };
 
     checkDialogTimeout = function () {
@@ -204,22 +180,17 @@
       clearInterval(remainingTimer);
     };
 
-    isDialogOpen = function () {
-      var dialogOpen = $("#idletimer_warning_dialog").is(":visible");
+    abortWarningPeriod = function () {
 
-      if (dialogOpen === true) {
-        return true;
-      }
-      return false;
-    };
+        stopDialogTimer();
 
-    destroyWarningDialog = function () {
-      $("#idletimer_warning_dialog").dialog('destroy').remove();
-      document.title = origTitle;
+        if (currentConfig.onWarningAborted) {
+            currentConfig.onWarningAborted();
+        }
 
-      if (currentConfig.sessionKeepAliveTimer) {
-        startKeepSessionAlive();
-      }
+        if (currentConfig.sessionKeepAliveTimer) {
+            startKeepSessionAlive();
+        }
     };
 
     countdownDisplay = function () {
