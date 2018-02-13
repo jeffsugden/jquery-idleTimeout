@@ -22,7 +22,7 @@
 
 (function ($) {
 
-  $.fn.idleTimeout = function (userRuntimeConfig) {
+  $.idleTimeout = function (userRuntimeConfig) {
 
     //##############################
     //## Public Configuration Variables
@@ -69,7 +69,7 @@
       activityDetector,
       startKeepSessionAlive, stopKeepSessionAlive, keepSession, keepAlivePing, // session keep alive
       idleTimer, remainingTimer, checkIdleTimeout, checkIdleTimeoutLoop, startIdleTimer, stopIdleTimer, // idle timer
-      beginWarningPeriod, dialogTimer, checkDialogTimeout, startDialogTimer, stopDialogTimer, isWarningPeriod, abortWarningPeriodoy, countdownDisplay, // warning dialog
+      beginWarningPeriod, dialogTimer, checkDialogTimeout, startDialogTimer, stopDialogTimer, isWarningPeriod, abortWarningPeriod, countdownDisplay, // warning dialog
       logoutUser;
 
     //##############################
@@ -77,7 +77,7 @@
     //##############################
     // trigger a manual user logout
     // use this code snippet on your site's Logout button: $.fn.idleTimeout().logout();
-    this.logout = function () {
+    var logout = function () {
       store.set('idleTimerLoggedOut', true);
     };
 
@@ -152,7 +152,7 @@
     beginWarningPeriod = function () {
         
         if (currentConfig.onWarning) {
-            currentConfig.onWarning();
+            currentConfig.onWarning(abortWarningPeriod);
         }
 
         if (currentConfig.sessionKeepAliveTimer) {
@@ -181,15 +181,17 @@
     };
 
     abortWarningPeriod = function () {
+        if (currentConfig.enableDialog && isWarningPeriod === true) {
+            stopDialogTimer();
+            
+            if (currentConfig.onWarningAborted) {
+                currentConfig.onWarningAborted();
+            }
 
-        stopDialogTimer();
-
-        if (currentConfig.onWarningAborted) {
-            currentConfig.onWarningAborted();
-        }
-
-        if (currentConfig.sessionKeepAliveTimer) {
-            startKeepSessionAlive();
+            if (currentConfig.sessionKeepAliveTimer) {
+                startKeepSessionAlive();
+            }
+            isWarningPeriod = false;
         }
     };
 
@@ -201,7 +203,7 @@
         if (mins < 10) { mins = '0' + mins; }
         secs = dialogDisplaySeconds - (mins * 60); // seconds
         if (secs < 10) { secs = '0' + secs; }
-        $('#countdownDisplay').html(mins + ':' + secs);
+        currentConfig.onWarningCountdown(mins + ':' + secs);
         dialogDisplaySeconds -= 1;
       }, 1000);
     };
@@ -227,9 +229,7 @@
     // Build & Return the instance of the item as a plugin
     // This is your construct.
     //###############################
-    return this.each(function () {
-
-      if (store.enabled) {
+      if (!store.disabled) {
 
         store.set('idleTimerLastActivity', $.now());
         store.set('idleTimerLoggedOut', false);
@@ -244,8 +244,11 @@
 
       } else {
         alert(currentConfig.errorAlertMessage);
-      }
+    }
 
-    });
+      return {
+          logout: logout,
+          abortWarning: abortWarningPeriod
+      };
   };
 }(jQuery));
